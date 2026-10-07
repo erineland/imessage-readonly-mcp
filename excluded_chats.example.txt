@@ -1,0 +1,4 @@
+# Copy to excluded_chats.txt. One rule per line:
+# Jane Smith
+# id:123
+# +447700900000

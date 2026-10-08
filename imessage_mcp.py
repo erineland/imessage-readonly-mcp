@@ -437,9 +437,12 @@ def tool_search(a):
     chats = chat_rows(con)
     excl = excluded_ids(chats)
     clause, params = not_in("cmj.chat_id", excl)
-    # attributedBody is a blob; LIKE against it is a cheap prefilter, Python confirms below.
-    where = BASE_WHERE + [clause, "(m.text LIKE ? OR CAST(m.attributedBody AS TEXT) LIKE ?)"]
-    params += [f"%{q}%", f"%{q}%"]
+    # ~99% of messages keep their text only in the attributedBody blob, and CAST(blob AS TEXT)
+    # stops at the first NUL byte, so a SQL LIKE on it silently matches nothing (found 8 Oct 2026:
+    # a word in 9 messages of one chat, search found 0). Prefilter on text only, decode the
+    # rest in Python. Measured ~1s across the whole 147k-message database.
+    where = BASE_WHERE + [clause, "(m.text LIKE ? OR (m.text IS NULL AND m.attributedBody IS NOT NULL))"]
+    params += [f"%{q}%"]
     if a.get("chat"):
         c, err = resolve_chat(chats, a["chat"], excl)
         if err:

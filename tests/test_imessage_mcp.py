@@ -190,6 +190,60 @@ class NetworkGuard(unittest.TestCase):
         import json, re  # noqa: E401,F401
 
 
+class TerminalSafety(unittest.TestCase):
+    """Message text is written by other people, so control characters in it must reach
+    the terminal as visible symbols, never as live escape sequences."""
+
+    def test_escape_sequences_become_visible(self):
+        self.assertEqual(m.clean_text("a\x1b[31mred\x1b[0m"), "a␛[31mred␛[0m")
+        self.assertEqual(m.clean_text("x\x1b]52;c;cHduZWQ=\x07"), "x␛]52;c;cHduZWQ=␇")
+
+    def test_crlf_becomes_lf_and_bare_cr_is_visible(self):
+        self.assertEqual(m.clean_text("line1\r\nline2\rX"), "line1\nline2␍X")
+
+    def test_tab_and_newline_are_kept(self):
+        self.assertEqual(m.clean_text("tab\tand\nnewline"), "tab\tand\nnewline")
+
+    def test_c1_del_and_nul(self):
+        self.assertEqual(m.clean_text("\x9b31m\x85"), "�31m�")
+        self.assertEqual(m.clean_text("del\x7f nul\x00"), "del␡ nul␀")
+
+    def test_bidi_controls_are_dropped(self):
+        self.assertEqual(m.clean_text("‮evil‬ ⁦iso⁩"), "evil iso")
+
+    def test_joiners_and_emoji_tags_survive(self):
+        england = "\U0001f3f4\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f"
+        for s in ("\U0001f469‍\U0001f4bb", england, "می‌خواهم"):
+            self.assertEqual(m.clean_text(s), s)
+
+    def test_non_strings_pass_through(self):
+        self.assertIsNone(m.clean_text(None))
+        self.assertEqual(m.clean_text(3), 3)
+
+    def test_reply_text_and_error_message_are_both_cleaned(self):
+        result = {"content": [{"type": "text", "text": "\x1b[2Jhi"}]}
+        error = {"code": -32602, "message": "Unknown tool: \x1b]0;t\x07"}
+        m._clean_reply(result, error)
+        self.assertEqual(result["content"][0]["text"], "␛[2Jhi")
+        self.assertNotIn("\x1b", error["message"])
+        self.assertNotIn("\x07", error["message"])
+
+    def test_end_to_end_reply_has_no_raw_controls(self):
+        # In-process stand-in for a stdio round trip (subprocess is blocked by the guard).
+        import io, json
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            m.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+            m.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                      "params": {"name": "x\x1b]0;pwned\x07", "arguments": {}}})
+        replies = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+        decoded = json.dumps(replies[-1], ensure_ascii=False)
+        self.assertNotIn("\x1b", decoded)
+        self.assertNotIn("\x07", decoded)
+        self.assertIn("␛", decoded)
+
+
 class SyntheticDatabase(unittest.TestCase):
     """End to end against a tiny chat.db with the columns the server reads."""
 

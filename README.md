@@ -55,6 +55,9 @@ will sometimes be wrong, and that some messages will be written by people trying
   code has its digits replaced before it leaves the server. Phone numbers and email
   addresses are never shown in full either: people appear by their Contacts name, strangers as a masked
   number. Business sender IDs stay visible, because "ExampleBank" is useful and identifies nobody.
+- **Terminal control characters.** Every reply is cleaned of terminal control characters
+  before it leaves the server (ESC → ␛, BEL → ␇, bare CR → ␍, C1 → �, bidi overrides dropped),
+  so a message can't act on the terminal that ends up displaying it.
 - **What isn't protected.** Message text from chats you haven't excluded is passed to the
   model as-is (names, addresses, anything people have written). Use `excluded_chats.txt` for
   conversations that should never be read. Exclusion matches names by substring, so it
